@@ -1,29 +1,34 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()  # loads variables from .env if present
 
 class Config:
-    SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-')
-    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt-secret')
+    SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt-secret-change-in-production')
 
-    DB_HOST = os.getenv('DB_HOST', 'localhost')
-    DB_USER = os.getenv('DB_USER', 'root')
-    DB_PASSWORD = os.getenv('DB_PASSWORD', 'Sandile@2004')
-    DB_NAME = os.getenv('DB_NAME', 'iskhumba_db')
-    DB_PORT = int(os.getenv('DB_PORT', 3306))
+    # Render sets DATABASE_URL automatically when you attach a PostgreSQL DB
+    DATABASE_URL = os.getenv('DATABASE_URL')
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable is not set")
 
-    # Escape '@' in password if present
-    if DB_PASSWORD:
-        escaped = DB_PASSWORD.replace('@', '%40')
-        SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{DB_USER}:{escaped}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    else:
-        SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-
+    # SQLAlchemy 1.4+ uses this directly (postgresql://...)
+    SQLALCHEMY_DATABASE_URI = DATABASE_URL
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+    # Cloudinary credentials (set these in Render environment)
+    CLOUDINARY_CLOUD_NAME = os.getenv('CLOUDINARY_CLOUD_NAME')
+    CLOUDINARY_API_KEY = os.getenv('CLOUDINARY_API_KEY')
+    CLOUDINARY_API_SECRET = os.getenv('CLOUDINARY_API_SECRET')
+
+    # Local upload fallback (not used if Cloudinary is configured)
     UPLOAD_FOLDER = 'uploads'
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
-    CORS_ORIGINS = ['http://localhost:5001', 'http://127.0.0.1:5001', 'http://localhost:3000']
+    # CORS – allow your frontend domain
+    CORS_ORIGINS = [
+        'https://maduna234.github.io',
+        'http://localhost:5001',   # for local testing
+        'http://127.0.0.1:5001'
+    ]
