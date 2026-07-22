@@ -209,12 +209,30 @@ def register():
         role = data.get('role', 'customer')
         phone = data.get('phone', '')
         address = data.get('address', '')
+        
         if not name or not email or not password:
             return jsonify({'message': 'Name, email and password required'}), 400
+        
+        # ─── RESTRICT ADMIN REGISTRATION ──────────────────────
+        # Only these emails can register as admin
+        ALLOWED_ADMIN_EMAILS = [
+            'maduna@iskhumba.ac.za',
+            'shenge@iskhumba.ac.za',
+            'mbokazi@iskhumba.ac.za'
+        ]
+        
+        if role == 'admin' and email not in ALLOWED_ADMIN_EMAILS:
+            return jsonify({
+                'message': 'You are not authorized to register as an admin'
+            }), 403
+        # ──────────────────────────────────────────────────────
+        
         if User.query.filter_by(email=email).first():
             return jsonify({'message': 'Email already registered'}), 409
+            
         hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        approved = (role == 'admin')
+        approved = (role == 'admin')  # Admin accounts are auto-approved
+        
         user = User(name=name, email=email, password=hashed.decode('utf-8'),
                     role=role, approved=approved)
         db.session.add(user)
@@ -573,8 +591,6 @@ def upload_gallery_images():
 def delete_gallery_image(id):
     try:
         image = Gallery.query.get_or_404(id)
-        # Optionally delete from Cloudinary using public_id if you store it
-        # For now we just remove the database record
         db.session.delete(image)
         db.session.commit()
         return jsonify({'message': 'Image deleted'})
