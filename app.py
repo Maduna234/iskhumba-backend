@@ -583,9 +583,11 @@ def delete_gallery_image(id):
         traceback.print_exc()
         return jsonify({'message': str(e)}), 500
 
-# ─── Start Server ─────────────────────────────────────────
+# ─── Start Server and Create Tables ─────────────────────
+
+# IMPORTANT: This ensures tables are created when the app starts (e.g., with Gunicorn)
+with app.app_context():
+    db.create_all()
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()  # This will create tables based on models
     app.run(host='0.0.0.0', port=5000, debug=True)
