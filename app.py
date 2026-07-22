@@ -2,6 +2,7 @@ import os
 import bcrypt
 import datetime
 import traceback
+import uuid
 from functools import wraps
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -12,15 +13,27 @@ from flask_jwt_extended import (
 )
 from werkzeug.utils import secure_filename
 from PIL import Image
-import uuid
+
+# Cloudinary
+import cloudinary
+import cloudinary.uploader
 
 app = Flask(__name__)
 app.config.from_object('config.Config')
 
-CORS(app, origins='*', supports_credentials=True,
+# CORS – allow specific origins
+CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True,
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
+# Ensure upload folder exists (if you ever use local fallback)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Configure Cloudinary
+cloudinary.config(
+    cloud_name=app.config['CLOUDINARY_CLOUD_NAME'],
+    api_key=app.config['CLOUDINARY_API_KEY'],
+    api_secret=app.config['CLOUDINARY_API_SECRET']
+)
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
@@ -35,7 +48,7 @@ def invalid_token_loader(callback):
     return jsonify({'message': 'Invalid token'}), 401
 
 @jwt.expired_token_loader
-def expired_token_loader(jwt_header, jwt_data):   # FIXED: two arguments
+def expired_token_loader(jwt_header, jwt_data):
     print("💥 Token expired:", jwt_data)
     return jsonify({'message': 'Token expired'}), 401
 
@@ -56,7 +69,7 @@ class User(db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.Enum('admin', 'customer'), default='customer')
+    role = db.Column(db.String(20), default='customer')  # 'admin' or 'customer'
     approved = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.TIMESTAMP, default=db.func.current_timestamp())
 
@@ -98,7 +111,7 @@ class Booking(db.Model):
     package_name = db.Column(db.String(100))
     package_price = db.Column(db.String(50))
     service_type = db.Column(db.String(50))
-    status = db.Column(db.Enum('pending', 'confirmed', 'completed', 'cancelled'), default='pending')
+    status = db.Column(db.String(20), default='pending')  # pending, confirmed, completed, cancelled
     details = db.Column(db.Text)
     created_at = db.Column(db.TIMESTAMP, default=db.func.current_timestamp())
 
@@ -120,7 +133,7 @@ class Payment(db.Model):
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id', ondelete='CASCADE'), nullable=False)
     amount = db.Column(db.Numeric(10, 2), default=0)
     method = db.Column(db.String(50))
-    status = db.Column(db.Enum('unpaid', 'paid', 'pending', 'partial'), default='unpaid')
+    status = db.Column(db.String(20), default='unpaid')  # unpaid, paid, pending, partial
     reference = db.Column(db.String(100))
     created_at = db.Column(db.TIMESTAMP, default=db.func.current_timestamp())
 
@@ -139,7 +152,7 @@ class Gallery(db.Model):
     __tablename__ = 'gallery'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255))
-    url = db.Column(db.String(500), nullable=False)
+    url = db.Column(db.String(500), nullable=False)  # Cloudinary URL
     created_at = db.Column(db.TIMESTAMP, default=db.func.current_timestamp())
 
     def to_dict(self):
@@ -532,21 +545,21 @@ def upload_gallery_images():
         files = request.files.getlist('images')
         if not files or files[0].filename == '':
             return jsonify({'message': 'No images selected'}), 400
+
         inserted = []
         for file in files:
             if not allowed_file(file.filename):
                 continue
-            filename = secure_filename(f"{uuid.uuid4().hex}_{file.filename}")
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            img = Image.open(file)
-            if img.mode in ('RGBA', 'LA'):
-                img = img.convert('RGB')
-            img.save(filepath, 'JPEG', quality=85, optimize=True)
-            url = f"/uploads/{filename}"
+
+            # Upload to Cloudinary
+            result = cloudinary.uploader.upload(file, folder='iskhumba_gallery')
+            url = result['secure_url']
+
             gallery_item = Gallery(title=file.filename, url=url)
             db.session.add(gallery_item)
             db.session.flush()
             inserted.append(gallery_item.to_dict())
+
         db.session.commit()
         return jsonify(inserted), 201
     except Exception as e:
@@ -560,9 +573,8 @@ def upload_gallery_images():
 def delete_gallery_image(id):
     try:
         image = Gallery.query.get_or_404(id)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], image.url.split('/')[-1])
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        # Optionally delete from Cloudinary using public_id if you store it
+        # For now we just remove the database record
         db.session.delete(image)
         db.session.commit()
         return jsonify({'message': 'Image deleted'})
@@ -571,13 +583,9 @@ def delete_gallery_image(id):
         traceback.print_exc()
         return jsonify({'message': str(e)}), 500
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
 # ─── Start Server ─────────────────────────────────────────
 
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()
+        db.create_all()  # This will create tables based on models
     app.run(host='0.0.0.0', port=5000, debug=True)
